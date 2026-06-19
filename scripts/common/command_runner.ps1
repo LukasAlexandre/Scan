@@ -59,6 +59,29 @@ function Test-WmtgKnownMaintenanceCommand {
     return $false
 }
 
+function Test-WmtgAllowedExecutable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Command,
+
+        [string[]]$AllowedExecutables = @('DISM', 'DISM.exe', 'sfc', 'sfc.exe', 'chkdsk', 'chkdsk.exe', 'defrag', 'defrag.exe')
+    )
+
+    $commandName = [System.IO.Path]::GetFileName($Command)
+    if ([string]::IsNullOrWhiteSpace($commandName)) {
+        return $false
+    }
+
+    foreach ($allowed in $AllowedExecutables) {
+        if ($commandName.Equals($allowed, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Write-WmtgRunnerLog {
     [CmdletBinding()]
     param(
@@ -126,10 +149,12 @@ function Invoke-CommandWithLog {
         [string]$ProjectRoot,
         [bool]$DryRun = $true,
         [bool]$AllowRealMaintenance = $false,
+        [bool]$AllowSessionRealMaintenance = $false,
         [bool]$RequireAdmin = $false,
         [bool]$RequireExplicitConfirmation = $true,
         [string]$ConfirmationToken,
         [string]$RequiredConfirmationToken = 'CONFIRM_REAL_EXECUTION',
+        [string[]]$AllowedExecutables = @('DISM', 'DISM.exe', 'sfc', 'sfc.exe', 'chkdsk', 'chkdsk.exe', 'defrag', 'defrag.exe'),
         [switch]$AllowKnownMaintenanceCommand
     )
 
@@ -137,12 +162,16 @@ function Invoke-CommandWithLog {
         return Invoke-DryRunCommand -Command $Command -Arguments $Arguments -Terminal $Terminal -Mode $Mode -LogPath $LogPath -ProjectRoot $ProjectRoot
     }
 
-    if (-not $AllowRealMaintenance) {
-        throw "Real command execution blocked because AllowRealMaintenance is false."
+    if (-not ($AllowRealMaintenance -or $AllowSessionRealMaintenance)) {
+        throw "Real command execution blocked because AllowRealMaintenance and AllowSessionRealMaintenance are false."
     }
 
     if ($RequireExplicitConfirmation -and $ConfirmationToken -ne $RequiredConfirmationToken) {
         throw "Real command execution blocked because explicit confirmation token was not provided."
+    }
+
+    if (-not (Test-WmtgAllowedExecutable -Command $Command -AllowedExecutables $AllowedExecutables)) {
+        throw "Real command execution blocked because '$Command' is outside the allowed executable list."
     }
 
     if ($RequireAdmin) {
