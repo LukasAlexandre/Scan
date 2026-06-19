@@ -154,6 +154,15 @@ Nenhuma tarefa agendada foi criada, alterada ou removida. `install.ps1`, `uninst
 Leia Docs/05_blocos_implementacao/bloco_10_*.md (ou o proximo bloco definido em divisao_em_blocos.md) e implemente somente o Bloco 10. Use a base de logs, lock file e summary do Bloco 09 sem executar comandos de manutencao real.
 ```
 
+## Analise adicional com Graphify
+
+- Graphify foi usado: sim
+- Comando executado: `uv tool install graphifyy` seguido de `graphify update <raiz-do-projeto>` (modo somente-codigo, sem chave de LLM, sem custo de API)
+- Arquivos gerados: `graphify-out/graph.json`, `graphify-out/graph.html`, `graphify-out/GRAPH_REPORT.md` (nao versionados; `graphify-out/` adicionado ao `.gitignore`). Conclusoes curadas registradas em `Docs/03_arquitetura/graphify_relatorio_arquitetura.md`.
+- Principais relacoes identificadas: `New-RunContext()` e chamado por `Start-TerminalRoutine()`, `New-LauncherContext()` e `New-StartupRunContext()`; `Write-ConsolidatedSummaryJson()` so e chamado por `Invoke-LauncherSummaryConsolidation()` (launcher); `Write-TerminalSummaryJson()` so e chamado por `Start-TerminalRoutine()` (terminal); `Write-ExecutionEvent()` e chamado pelos quatro wrappers de log (`Write-LauncherLog`, `Write-TerminalLog`, `Write-MaintenanceLog`, `Write-StartupLog`).
+- Impacto na implementacao do Bloco 09: nenhuma mudanca de codigo foi feita por causa do Graphify, pois a analise foi executada **depois** da implementacao/validacao manual. Serviu como segunda confirmacao independente de que a separacao entre summary por terminal e summary consolidado, e a concentracao de logs estruturados em `Write-ExecutionEvent()`, estao corretas.
+- Observacoes: a extracao foi feita somente em modo codigo (sem chave de LLM configurada), portanto nao houve cruzamento semantico com `Docs/*.md`. A travessia reversa de `New-LockFile()` no grafo so encontrou `New-LauncherRunLock()` como chamador, mas a leitura direta do codigo confirmou que `launcher_maintenance_real.ps1` e `launcher_startup_safe.ps1` tambem chamam `New-LockFile()` diretamente — gap conhecido da extracao heuristica sem etapa semantica, nao um problema de arquitetura.
+
 ## Confirmacao de seguranca
 
 Nenhum comando de manutenção do Windows foi executado. Nenhum DISM, SFC, CHKDSK, defrag, modo real, startup automático real durante validação, alteração de registro, autoelevação ou comando administrativo foi rodado neste bloco.
