@@ -42,3 +42,35 @@ Nenhuma mudanca de codigo foi feita por causa do Graphify — a ferramenta foi u
 
 - Para uma analise semantica completa cruzando `Docs/*.md` com o codigo, seria necessario configurar uma chave de API de LLM (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY` ou equivalente) e rodar `graphify extract`. Isso nao foi feito neste momento para evitar enviar conteudo do repositorio a um servico externo sem autorizacao explicita adicional.
 - O grafo de codigo gerado (`graphify-out/`) nao e versionado; pode ser regenerado a qualquer momento com `graphify update .` (sem custo de API).
+
+## Addendum - Re-execucao para o Bloco 10 (testes de validacao local)
+
+Apos a criacao de `tests/` (9 scripts `test_*.ps1` + `run_all_safe_tests.ps1`), o grafo foi
+regenerado com `graphify update .` (mesmo modo "no LLM needed" do Bloco 09, nenhuma chave de
+API configurada). Resultado: 1061 nos / 1101 arestas / 105 comunidades, a partir de 105 arquivos
+de codigo extraidos via AST — antes da adicao da pasta `tests/` o grafo tinha 1024 nos / 1076
+arestas / 91 comunidades a partir de 31 arquivos de codigo PowerShell. O aumento reflete a soma
+dos 10 novos scripts de teste; nenhum arquivo fora de `tests/` foi alterado por este bloco
+(confirmado por `git diff` vazio em `scripts/`, `config/`, `install.ps1` e `uninstall.ps1`).
+
+Limitacao confirmada (mesma classe de gap ja registrada para o Bloco 09 acima): a extracao
+heuristica sem LLM nao modela aresta de "chamada" quando um script invoca outro via operador de
+chamada (`& $scriptPath ...`) ou quando apenas executa `. (Join-Path ... 'common.ps1')` e em
+seguida chama as funcoes carregadas — esse padrao e usado em todos os 9 scripts de teste para
+reaproveitar `scripts/common/*.ps1` e, em alguns casos, invocar os scripts reais em modo
+dry-run. Por isso varios nos de teste aparecem com grau baixo ou zero no grafo
+(`tests/run_all_safe_tests.ps1` = grau 0; `tests/test_config_json.ps1`,
+`tests/test_common_modules.ps1` e `tests/test_logs_lock_summary.ps1` = grau 1;
+`tests/test_security_static_scan.ps1` = grau 3), apesar de, na leitura direta do codigo, cada um
+desses scripts efetivamente chamar dezenas de funcoes de `scripts/common/` e, quando aplicavel,
+invocar os scripts reais de `scripts/terminals/`, `scripts/launchers/` e `scripts/startup/`. Isso
+nao indica um problema na suite de testes — apenas reforca que a confirmacao de cobertura deste
+bloco depende da leitura manual dos scripts e da execucao real (`tests/run_all_safe_tests.ps1`),
+nao apenas do grafo automatico.
+
+Nenhuma mudanca de codigo foi feita por causa desta re-execucao do Graphify; ela serviu apenas
+como segunda fonte de confirmacao de que a pasta `tests/` nao introduziu nenhuma arvore de
+chamada nova em direcao a `Register-ScheduledTask`, `Unregister-ScheduledTask` ou aos comandos
+reais de manutencao — os unicos nos que esses testes referenciam diretamente, segundo
+`graphify affected "Invoke-CommandWithLog()"`, continuam sendo os mesmos do Bloco 09
+(`Invoke-MaintenanceExecutionPlan()` em `scripts/launchers/maintenance_real_common.ps1`).

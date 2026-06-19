@@ -1,6 +1,9 @@
 logs/*
 !logs/.gitkeep
 
+tests/results/*
+!tests/results/.gitkeep
+
 tmp/*
 !tmp/.gitkeep
 
