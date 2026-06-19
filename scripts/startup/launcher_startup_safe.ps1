@@ -64,7 +64,8 @@ try {
     $launcherArguments = Build-StartupSafeLauncherArguments -RunLogDirectory $runLogDirectory -UseFallback:$UseFallback -NoPause:$NoPause
     Write-StartupLog -RunLogDirectory $runLogDirectory -RunId $runContext.RunId -Message "Calling grid launcher with: $launcherPath $(ConvertTo-StartupArgumentText -Arguments $launcherArguments)" -Level 'INFO' -ProjectRoot $projectRoot | Out-Null
 
-    & $launcherPath @launcherArguments
+    $launcherSplat = Build-StartupSafeLauncherSplat -RunLogDirectory $runLogDirectory -UseFallback:$UseFallback -NoPause:$NoPause
+    & $launcherPath @launcherSplat
 
     Write-StartupLog -RunLogDirectory $runLogDirectory -RunId $runContext.RunId -Message 'Startup safe wrapper handed off to the grid launcher without enabling automatic startup or real mode.' -Level 'SUCCESS' -ProjectRoot $projectRoot | Out-Null
 } finally {

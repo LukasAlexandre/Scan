@@ -53,12 +53,12 @@ function Show-LoadingBar {
     }
 
     if ($DelayMilliseconds -lt 0) {
-        $safeDuration = [Math]::Max(0, [Math]::Min($DurationSeconds, 30))
+        $safeDuration = [Math]::Max(0, [Math]::Min($DurationSeconds, 300))
         $delayCount = [Math]::Max(1, $values.Count - 1)
         $DelayMilliseconds = [Math]::Floor(($safeDuration * 1000) / $delayCount)
     }
 
-    $safeDelay = [Math]::Max(0, [Math]::Min($DelayMilliseconds, 2000))
+    $safeDelay = [Math]::Max(0, [Math]::Min($DelayMilliseconds, 15000))
     foreach ($value in $values) {
         $filled = [Math]::Floor(($value / 100) * $safeWidth)
         $empty = $safeWidth - $filled
@@ -91,7 +91,7 @@ function Show-Spinner {
     if ($DurationMilliseconds -ge 0) {
         $durationMs = $DurationMilliseconds
     } else {
-        $durationMs = [Math]::Max(0, [Math]::Min($DurationSeconds, 30)) * 1000
+        $durationMs = [Math]::Max(0, [Math]::Min($DurationSeconds, 300)) * 1000
     }
 
     if ($IntervalMilliseconds -le 0) {
@@ -137,7 +137,7 @@ function Start-VisualDelay {
     if ($Milliseconds -ge 0) {
         $durationMs = $Milliseconds
     } else {
-        $durationMs = [Math]::Max(0, [Math]::Min($Seconds, 30)) * 1000
+        $durationMs = [Math]::Max(0, [Math]::Min($Seconds, 300)) * 1000
     }
 
     if ($durationMs -eq 0) {

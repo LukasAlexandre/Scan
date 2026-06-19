@@ -166,6 +166,34 @@ function Build-StartupSafeLauncherArguments {
     return @($arguments)
 }
 
+function Build-StartupSafeLauncherSplat {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RunLogDirectory,
+
+        [switch]$UseFallback,
+        [switch]$NoPause
+    )
+
+    # Array splatting (@array) binds positionally, not by '-Name' token, so it cannot
+    # be used to call a .ps1 script's named parameters; a hashtable splat is required.
+    $splat = @{
+        Mode = 'startup_safe'
+        RunLogDirectory = $RunLogDirectory
+        DryRun = $true
+    }
+
+    if ($UseFallback.IsPresent) {
+        $splat['UseFallback'] = $true
+    }
+    if ($NoPause.IsPresent) {
+        $splat['NoPause'] = $true
+    }
+
+    return $splat
+}
+
 function ConvertTo-StartupArgumentText {
     [CmdletBinding()]
     param(

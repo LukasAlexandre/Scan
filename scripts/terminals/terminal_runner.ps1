@@ -176,9 +176,13 @@ function Start-TerminalRoutine {
     Write-ColoredLog -Message 'Safe terminal entry script started. Block 04 enforces dry-run behavior.' -Level 'INFO' -Terminal $terminalTitle -LogFile $logFile -ProjectRoot $projectRoot -Color $terminalColor -Prefix 'STATUS' | Out-Null
     Write-TerminalLog -RunLogDirectory $RunLogDirectory -RunId $runId -TerminalId $TerminalId -Message 'Terminal bootstrap started.' -Level 'INFO' -ProjectRoot $projectRoot | Out-Null
 
+    # -NoPause marks an automated/test invocation (tests/run_all_safe_tests.ps1 always passes it);
+    # the ~4 minute visual sequence only runs for real interactive grid sessions so the test suite stays fast.
+    $visualPhaseDurationSeconds = if ($NoPause.IsPresent) { 0 } else { 120 }
+
     Show-TerminalIntro -Title $terminalTitle -Description (Get-TerminalDescription -TerminalId $TerminalId) -Color $terminalColor -TypingDelayMilliseconds 0 -LogFile $logFile -ProjectRoot $projectRoot
-    Show-LoadingBar -Activity "$terminalTitle visual initialization" -DurationSeconds 0 -Color $terminalColor -LogFile $logFile -ProjectRoot $projectRoot -Terminal $terminalTitle
-    Show-Spinner -Message "$terminalTitle dry-run preparation" -DurationSeconds 0 -Color $terminalColor -LogFile $logFile -ProjectRoot $projectRoot -Terminal $terminalTitle
+    Show-LoadingBar -Activity "$terminalTitle visual initialization" -DurationSeconds $visualPhaseDurationSeconds -Color $terminalColor -LogFile $logFile -ProjectRoot $projectRoot -Terminal $terminalTitle
+    Show-Spinner -Message "$terminalTitle dry-run preparation" -DurationSeconds $visualPhaseDurationSeconds -Color $terminalColor -LogFile $logFile -ProjectRoot $projectRoot -Terminal $terminalTitle
 
     $effectiveDryRun = $true
     if (-not $DryRun.IsPresent) {
