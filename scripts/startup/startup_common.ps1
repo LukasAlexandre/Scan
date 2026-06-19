@@ -120,7 +120,7 @@ function Test-StartupSafeConfiguration {
     }
 }
 
-function Resolve-StartupRunLogDirectory {
+function New-StartupRunContext {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -135,8 +135,7 @@ function Resolve-StartupRunLogDirectory {
         $baseDirectory = $ScheduleSettings.logs.baseDirectory
     }
 
-    $runId = 'startup_safe_{0}' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')
-    return New-RunLogDirectory -ProjectRoot $ProjectRoot -BaseDirectory $baseDirectory -RunId $runId
+    return New-RunContext -ProjectRoot $ProjectRoot -Mode 'startup_safe' -Source 'startup_safe' -DryRun $true -BaseDirectory $baseDirectory
 }
 
 function Build-StartupSafeLauncherArguments {

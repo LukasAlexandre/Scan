@@ -212,3 +212,160 @@ function Write-ErrorLog {
 
     return Write-Log -Message $Message -Level 'ERROR' -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color Red -Prefix 'ERROR'
 }
+
+function Write-ExecutionEvent {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RunLogDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'SUCCESS', 'DEBUG')]
+        [string]$Level = 'INFO',
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+
+        [object]$Data,
+        [string]$ProjectRoot,
+        [string]$FileName = 'execution_events.ndjson'
+    )
+
+    $resolvedRunDirectory = Resolve-WmtgProjectPath -Path $RunLogDirectory -ProjectRoot $ProjectRoot
+    if (-not (Test-Path -LiteralPath $resolvedRunDirectory)) {
+        New-Item -ItemType Directory -Path $resolvedRunDirectory -Force | Out-Null
+    }
+
+    $eventPayload = [ordered]@{
+        timestamp = (Get-Date).ToString('o')
+        runId = $RunId
+        source = $Source
+        level = $Level
+        message = $Message
+    }
+    if ($PSBoundParameters.ContainsKey('Data') -and $null -ne $Data) {
+        $eventPayload['data'] = $Data
+    }
+
+    $eventsPath = Join-Path $resolvedRunDirectory $FileName
+    ($eventPayload | ConvertTo-Json -Depth 6 -Compress) | Add-Content -LiteralPath $eventsPath -Encoding UTF8
+
+    return $eventPayload
+}
+
+function Write-TerminalLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RunLogDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TerminalId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'SUCCESS', 'DEBUG')]
+        [string]$Level = 'INFO',
+
+        [object]$Data,
+        [string]$ProjectRoot,
+        [ConsoleColor]$Color
+    )
+
+    $logPath = Join-Path $RunLogDirectory ("terminals/{0}.log" -f $TerminalId)
+    $logParams = @{
+        Message = $Message
+        Level = $Level
+        Terminal = $TerminalId.ToUpperInvariant()
+        LogPath = $logPath
+        ProjectRoot = $ProjectRoot
+    }
+    if ($PSBoundParameters.ContainsKey('Color')) {
+        $logParams['Color'] = $Color
+    }
+    Write-Log @logParams | Out-Null
+
+    Write-ExecutionEvent -RunLogDirectory $RunLogDirectory -RunId $RunId -Source $TerminalId -Level $Level -Message $Message -Data $Data -ProjectRoot $ProjectRoot | Out-Null
+}
+
+function Write-LauncherLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RunLogDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'SUCCESS', 'DEBUG')]
+        [string]$Level = 'INFO',
+
+        [object]$Data,
+        [string]$ProjectRoot,
+        [string]$Source = 'launcher'
+    )
+
+    $logPath = Join-Path $RunLogDirectory 'launcher.log'
+    Write-Log -Message $Message -Level $Level -Terminal 'LAUNCHER' -LogPath $logPath -ProjectRoot $ProjectRoot | Out-Null
+    Write-ExecutionEvent -RunLogDirectory $RunLogDirectory -RunId $RunId -Source $Source -Level $Level -Message $Message -Data $Data -ProjectRoot $ProjectRoot | Out-Null
+}
+
+function Write-StartupLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RunLogDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'SUCCESS', 'DEBUG')]
+        [string]$Level = 'INFO',
+
+        [object]$Data,
+        [string]$ProjectRoot
+    )
+
+    $logPath = Join-Path $RunLogDirectory 'startup_safe.log'
+    Write-Log -Message $Message -Level $Level -Terminal 'STARTUP' -LogPath $logPath -ProjectRoot $ProjectRoot | Out-Null
+    Write-ExecutionEvent -RunLogDirectory $RunLogDirectory -RunId $RunId -Source 'startup_safe' -Level $Level -Message $Message -Data $Data -ProjectRoot $ProjectRoot | Out-Null
+}
+
+function Write-MaintenanceLog {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RunLogDirectory,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RunId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'SUCCESS', 'DEBUG')]
+        [string]$Level = 'INFO',
+
+        [object]$Data,
+        [string]$ProjectRoot
+    )
+
+    $logPath = Join-Path $RunLogDirectory 'maintenance_real.log'
+    Write-Log -Message $Message -Level $Level -Terminal 'MAINTENANCE' -LogPath $logPath -ProjectRoot $ProjectRoot | Out-Null
+    Write-ExecutionEvent -RunLogDirectory $RunLogDirectory -RunId $RunId -Source 'maintenance_real' -Level $Level -Message $Message -Data $Data -ProjectRoot $ProjectRoot | Out-Null
+}

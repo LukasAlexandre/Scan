@@ -145,28 +145,6 @@ function Resolve-LauncherProjectPath {
     return $fullPath
 }
 
-function Resolve-LauncherRunLogDirectory {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ProjectRoot,
-
-        [string]$RunLogDirectory
-    )
-
-    if ([string]::IsNullOrWhiteSpace($RunLogDirectory)) {
-        $runId = 'launcher_{0}' -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')
-        return New-RunLogDirectory -ProjectRoot $ProjectRoot -RunId $runId
-    }
-
-    $resolvedRunDirectory = Resolve-LauncherProjectPath -Path $RunLogDirectory -ProjectRoot $ProjectRoot
-    if (-not (Test-Path -LiteralPath $resolvedRunDirectory)) {
-        New-Item -ItemType Directory -Path $resolvedRunDirectory -Force | Out-Null
-    }
-
-    return $resolvedRunDirectory
-}
-
 function New-LauncherContext {
     [CmdletBinding()]
     param(
@@ -174,13 +152,39 @@ function New-LauncherContext {
         [string]$ProjectRoot,
 
         [string]$Mode = 'startup_safe',
-        [string]$RunLogDirectory
+        [string]$RunLogDirectory,
+        [string]$Source = 'launcher',
+        [bool]$DryRun = $true
     )
 
     $terminalsConfig = Get-TerminalsConfig -ProjectRoot $ProjectRoot
     $visualSettings = Get-VisualSettings -ProjectRoot $ProjectRoot
     $scheduleSettings = Get-ScheduleSettings -ProjectRoot $ProjectRoot
-    $resolvedRunLogDirectory = Resolve-LauncherRunLogDirectory -ProjectRoot $ProjectRoot -RunLogDirectory $RunLogDirectory
+
+    if ([string]::IsNullOrWhiteSpace($RunLogDirectory)) {
+        $runContext = New-RunContext -ProjectRoot $ProjectRoot -Mode $Mode -Source $Source -DryRun $DryRun
+    } else {
+        $resolvedRunLogDirectory = Resolve-LauncherProjectPath -Path $RunLogDirectory -ProjectRoot $ProjectRoot
+        Initialize-RunDirectory -ProjectRoot $ProjectRoot -RunLogDirectory $resolvedRunLogDirectory | Out-Null
+        $metadata = Read-RunMetadata -RunLogDirectory $resolvedRunLogDirectory -ProjectRoot $ProjectRoot
+        if ($metadata -and $metadata.runId) {
+            $runId = $metadata.runId
+            $startedAt = $metadata.startedAt
+        } else {
+            $runId = Split-Path -Leaf $resolvedRunLogDirectory
+            $startedAt = (Get-Date).ToString('o')
+        }
+
+        $runContext = [PSCustomObject]@{
+            RunId = $runId
+            Mode = $Mode
+            Source = $Source
+            DryRun = $DryRun
+            ProjectRoot = $ProjectRoot
+            LogDirectory = $resolvedRunLogDirectory
+            StartedAt = $startedAt
+        }
+    }
 
     return [PSCustomObject]@{
         ProjectRoot = $ProjectRoot
@@ -188,9 +192,55 @@ function New-LauncherContext {
         TerminalsConfig = $terminalsConfig
         VisualSettings = $visualSettings
         ScheduleSettings = $scheduleSettings
-        RunLogDirectory = $resolvedRunLogDirectory
-        LauncherLogFile = Join-Path $resolvedRunLogDirectory 'launcher.log'
+        RunLogDirectory = $runContext.LogDirectory
+        RunId = $runContext.RunId
+        RunContext = $runContext
+        LauncherLogFile = Join-Path $runContext.LogDirectory 'launcher.log'
     }
+}
+
+function New-LauncherRunLock {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Context,
+
+        [int]$MaxAgeMinutes = 180
+    )
+
+    Assert-NoActiveLock -MaxAgeMinutes $MaxAgeMinutes | Out-Null
+    return New-LockFile -Mode $Context.Mode -RunId $Context.RunId -ProjectRoot $Context.ProjectRoot -LogDirectory $Context.RunLogDirectory -ExpiresAfterMinutes $MaxAgeMinutes
+}
+
+function Remove-LauncherRunLock {
+    [CmdletBinding()]
+    param(
+        [object]$LockStatus
+    )
+
+    if ($LockStatus -and $LockStatus.Exists -and $LockStatus.Pid -eq $PID) {
+        Remove-LockFile -ExpectedPid $PID | Out-Null
+        return $true
+    }
+
+    return $false
+}
+
+function Invoke-LauncherSummaryConsolidation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Context,
+
+        [string]$Source = 'launcher'
+    )
+
+    $summary = New-ExecutionSummary -Mode $Context.Mode -RunId $Context.RunId -ProjectRoot $Context.ProjectRoot -Source $Source -DryRun $true
+    $summaryPath = Write-ConsolidatedSummaryJson -Summary $summary -RunLogDirectory $Context.RunLogDirectory -Source $Source -ProjectRoot $Context.ProjectRoot
+
+    Write-LauncherLog -RunLogDirectory $Context.RunLogDirectory -RunId $Context.RunId -Message "Consolidated summary written to $summaryPath" -Level 'INFO' -ProjectRoot $Context.ProjectRoot | Out-Null
+
+    return $summaryPath
 }
 
 function Test-LauncherSafetyFlags {

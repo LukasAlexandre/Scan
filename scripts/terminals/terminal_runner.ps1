@@ -155,15 +155,26 @@ function Start-TerminalRoutine {
     $terminalColor = Get-TerminalConsoleColor -TerminalId $TerminalId -TerminalConfig $terminalConfig -VisualSettings $visualSettings
 
     if ([string]::IsNullOrWhiteSpace($RunLogDirectory)) {
-        $runId = '{0}_{1}' -f $TerminalId, (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss')
-        $RunLogDirectory = New-RunLogDirectory -ProjectRoot $projectRoot -RunId $runId
+        $runContext = New-RunContext -ProjectRoot $projectRoot -Mode $Mode -Source $TerminalId -DryRun $true
+        $RunLogDirectory = $runContext.LogDirectory
+        $runId = $runContext.RunId
+    } else {
+        $RunLogDirectory = Resolve-WmtgProjectPath -Path $RunLogDirectory -ProjectRoot $projectRoot
+        Initialize-RunDirectory -ProjectRoot $projectRoot -RunLogDirectory $RunLogDirectory | Out-Null
+        $metadata = Read-RunMetadata -RunLogDirectory $RunLogDirectory -ProjectRoot $projectRoot
+        if ($metadata -and $metadata.runId) {
+            $runId = $metadata.runId
+        } else {
+            $runId = Split-Path -Leaf $RunLogDirectory
+        }
     }
 
-    $logFile = Join-Path $RunLogDirectory ("{0}.log" -f $TerminalId)
-    $summary = New-ExecutionSummary -Mode $Mode -RunId (Split-Path -Leaf $RunLogDirectory) -ProjectRoot $projectRoot
+    $logFile = Join-Path $RunLogDirectory ("terminals/{0}.log" -f $TerminalId)
+    $summary = New-ExecutionSummary -Mode $Mode -RunId $runId -ProjectRoot $projectRoot -Source $TerminalId -DryRun $true
 
     Write-SectionLog -Title "$terminalTitle terminal bootstrap" -Terminal $terminalTitle -LogFile $logFile -ProjectRoot $projectRoot | Out-Null
     Write-ColoredLog -Message 'Safe terminal entry script started. Block 04 enforces dry-run behavior.' -Level 'INFO' -Terminal $terminalTitle -LogFile $logFile -ProjectRoot $projectRoot -Color $terminalColor -Prefix 'STATUS' | Out-Null
+    Write-TerminalLog -RunLogDirectory $RunLogDirectory -RunId $runId -TerminalId $TerminalId -Message 'Terminal bootstrap started.' -Level 'INFO' -ProjectRoot $projectRoot | Out-Null
 
     Show-TerminalIntro -Title $terminalTitle -Description (Get-TerminalDescription -TerminalId $TerminalId) -Color $terminalColor -TypingDelayMilliseconds 0 -LogFile $logFile -ProjectRoot $projectRoot
     Show-LoadingBar -Activity "$terminalTitle visual initialization" -DurationSeconds 0 -Color $terminalColor -LogFile $logFile -ProjectRoot $projectRoot -Terminal $terminalTitle
@@ -193,8 +204,9 @@ function Start-TerminalRoutine {
     }
 
     Write-ColoredLog -Message "$terminalTitle completed in dry-run/visual-only mode. No maintenance was executed." -Level 'SUCCESS' -Terminal $terminalTitle -LogFile $logFile -ProjectRoot $projectRoot -Color $terminalColor -Prefix 'STATUS' | Out-Null
-    $summaryPath = Write-SummaryJson -Summary $summary -RunLogDirectory $RunLogDirectory -ProjectRoot $projectRoot
-    Write-ColoredLog -Message "Summary written to $summaryPath" -Level 'DEBUG' -Terminal $terminalTitle -LogFile $logFile -ProjectRoot $projectRoot -Color DarkGray -Prefix 'STATUS' | Out-Null
+    $summaryPath = Write-TerminalSummaryJson -Summary $summary -RunLogDirectory $RunLogDirectory -TerminalId $TerminalId -ProjectRoot $projectRoot
+    Write-ColoredLog -Message "Per-terminal summary written to $summaryPath" -Level 'DEBUG' -Terminal $terminalTitle -LogFile $logFile -ProjectRoot $projectRoot -Color DarkGray -Prefix 'STATUS' | Out-Null
+    Write-TerminalLog -RunLogDirectory $RunLogDirectory -RunId $runId -TerminalId $TerminalId -Message "Terminal completed in dry-run mode. Summary: $summaryPath" -Level 'SUCCESS' -ProjectRoot $projectRoot | Out-Null
 
     if ($terminalsConfig.keepTerminalOpenAfterFinish -and -not $NoPause.IsPresent) {
         Read-Host "Press Enter to close $terminalTitle"
@@ -204,6 +216,8 @@ function Start-TerminalRoutine {
         TerminalId = $TerminalId
         Mode = $Mode
         DryRun = $true
+        RunId = $runId
+        RunLogDirectory = $RunLogDirectory
         LogFile = $logFile
         SummaryFile = $summaryPath
         Status = 'completed_dry_run'

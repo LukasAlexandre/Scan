@@ -1,11 +1,56 @@
 function Get-LockFilePath {
     [CmdletBinding()]
     param(
-        [string]$FileName = 'grid.lock'
+        [string]$FileName = 'run.lock'
     )
 
     $base = Join-Path $env:LOCALAPPDATA 'WindowsMaintenanceTerminalGrid'
     return Join-Path $base $FileName
+}
+
+function Test-WmtgProcessAlive {
+    [CmdletBinding()]
+    param(
+        [Nullable[int]]$ProcessId
+    )
+
+    if (-not $ProcessId) {
+        return $false
+    }
+
+    return [bool](Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
+function Get-WmtgCurrentUserId {
+    [CmdletBinding()]
+    param()
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERDOMAIN) -and -not [string]::IsNullOrWhiteSpace($env:USERNAME)) {
+        return '{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME
+    }
+
+    return $env:USERNAME
+}
+
+function Read-LockFile {
+    [CmdletBinding()]
+    param(
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Get-LockFilePath
+    }
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    } catch {
+        return $null
+    }
 }
 
 function Test-LockFile {
@@ -23,41 +68,67 @@ function Test-LockFile {
             Exists = $false
             Path = $Path
             Pid = $null
+            RunId = $null
             Mode = $null
             CreatedAt = $null
+            ExpiresAt = $null
+            ProjectRoot = $null
+            LogDirectory = $null
+            CreatedBy = $null
             ProcessActive = $false
+            IsExpired = $false
             IsStale = $false
         }
     }
 
-    $content = $null
-    try {
-        $content = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    } catch {
+    $content = Read-LockFile -Path $Path
+    if ($null -eq $content) {
         return [PSCustomObject]@{
             Exists = $true
             Path = $Path
             Pid = $null
+            RunId = $null
             Mode = $null
             CreatedAt = $null
+            ExpiresAt = $null
+            ProjectRoot = $null
+            LogDirectory = $null
+            CreatedBy = $null
             ProcessActive = $false
+            IsExpired = $true
             IsStale = $true
         }
     }
 
-    $processActive = $false
+    $lockPid = $null
     if ($content.pid) {
-        $processActive = [bool](Get-Process -Id ([int]$content.pid) -ErrorAction SilentlyContinue)
+        $lockPid = [int]$content.pid
+    }
+    $processActive = Test-WmtgProcessAlive -ProcessId $lockPid
+
+    $isExpired = $false
+    if ($content.expiresAt) {
+        try {
+            $isExpired = (Get-Date) -gt ([DateTime]::Parse($content.expiresAt))
+        } catch {
+            $isExpired = $true
+        }
     }
 
     return [PSCustomObject]@{
         Exists = $true
         Path = $Path
-        Pid = $content.pid
+        Pid = $lockPid
+        RunId = $content.runId
         Mode = $content.mode
-        CreatedAt = $content.createdAt
+        CreatedAt = $content.startedAt
+        ExpiresAt = $content.expiresAt
+        ProjectRoot = $content.projectRoot
+        LogDirectory = $content.logDirectory
+        CreatedBy = $content.createdBy
         ProcessActive = $processActive
-        IsStale = -not $processActive
+        IsExpired = $isExpired
+        IsStale = ((-not $processActive) -or $isExpired)
     }
 }
 
@@ -66,6 +137,10 @@ function New-LockFile {
     param(
         [string]$Path,
         [string]$Mode = 'unknown',
+        [string]$RunId,
+        [string]$ProjectRoot,
+        [string]$LogDirectory,
+        [int]$ExpiresAfterMinutes = 180,
         [switch]$Force
     )
 
@@ -74,8 +149,9 @@ function New-LockFile {
     }
 
     $status = Test-LockFile -Path $Path
-    if ($status.Exists -and $status.ProcessActive -and -not $Force) {
-        throw "Active lock file already exists for PID $($status.Pid): $Path"
+    $ownedBySelf = ($status.Exists -and $status.Pid -eq $PID)
+    if ($status.Exists -and $status.ProcessActive -and -not $status.IsStale -and -not $ownedBySelf -and -not $Force) {
+        throw "Active lock file already exists for PID $($status.Pid), runId '$($status.RunId)': $Path"
     }
 
     $parent = Split-Path -Parent $Path
@@ -83,10 +159,16 @@ function New-LockFile {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
 
+    $startedAt = Get-Date
     $payload = [ordered]@{
-        createdAt = (Get-Date).ToString('o')
-        pid = $PID
+        runId = $RunId
         mode = $Mode
+        startedAt = $startedAt.ToString('o')
+        pid = $PID
+        projectRoot = $ProjectRoot
+        logDirectory = $LogDirectory
+        expiresAt = $startedAt.AddMinutes([Math]::Max(1, $ExpiresAfterMinutes)).ToString('o')
+        createdBy = (Get-WmtgCurrentUserId)
         machineName = $env:COMPUTERNAME
         userName = $env:USERNAME
     }
@@ -99,7 +181,8 @@ function Remove-LockFile {
     [CmdletBinding()]
     param(
         [string]$Path,
-        [int]$ExpectedPid
+        [int]$ExpectedPid,
+        [string]$ExpectedRunId
     )
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -110,10 +193,13 @@ function Remove-LockFile {
         return $false
     }
 
-    if ($PSBoundParameters.ContainsKey('ExpectedPid')) {
+    if ($PSBoundParameters.ContainsKey('ExpectedPid') -or $PSBoundParameters.ContainsKey('ExpectedRunId')) {
         $status = Test-LockFile -Path $Path
-        if ($status.Pid -ne $ExpectedPid) {
+        if ($PSBoundParameters.ContainsKey('ExpectedPid') -and $status.Pid -ne $ExpectedPid) {
             throw "Refusing to remove lock owned by PID $($status.Pid). Expected PID: $ExpectedPid"
+        }
+        if ($PSBoundParameters.ContainsKey('ExpectedRunId') -and $status.RunId -ne $ExpectedRunId) {
+            throw "Refusing to remove lock owned by runId '$($status.RunId)'. Expected runId: $ExpectedRunId"
         }
     }
 
@@ -153,4 +239,25 @@ function Clear-StaleLockFile {
     }
 
     return $false
+}
+
+function Assert-NoActiveLock {
+    [CmdletBinding()]
+    param(
+        [string]$Path,
+        [int]$MaxAgeMinutes = 180
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Get-LockFilePath
+    }
+
+    Clear-StaleLockFile -Path $Path -MaxAgeMinutes $MaxAgeMinutes | Out-Null
+    $status = Test-LockFile -Path $Path
+
+    if ($status.Exists -and $status.ProcessActive -and -not $status.IsStale -and $status.Pid -ne $PID) {
+        throw "Active lock file already exists for PID $($status.Pid), runId '$($status.RunId)': $($status.Path)"
+    }
+
+    return $status
 }
