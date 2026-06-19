@@ -187,3 +187,162 @@ function ConvertTo-StartupArgumentText {
 
     return ($quoted -join ' ')
 }
+
+function Resolve-StartupProjectPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot
+    )
+
+    if (Get-Command -Name Resolve-WmtgProjectPath -ErrorAction SilentlyContinue) {
+        return Resolve-WmtgProjectPath -Path $Path -ProjectRoot $ProjectRoot
+    }
+
+    $resolvedRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        $candidate = $Path
+    } else {
+        $candidate = Join-Path $resolvedRoot $Path
+    }
+
+    $fullPath = [System.IO.Path]::GetFullPath($candidate)
+    if (-not $fullPath.StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to use startup path outside project root: $fullPath"
+    }
+
+    return $fullPath
+}
+
+function Get-StartupTaskUserId {
+    [CmdletBinding()]
+    param()
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERDOMAIN) -and -not [string]::IsNullOrWhiteSpace($env:USERNAME)) {
+        return '{0}\{1}' -f $env:USERDOMAIN, $env:USERNAME
+    }
+
+    return [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+}
+
+function New-StartupScheduledTaskPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot,
+
+        [Parameter(Mandatory = $true)]
+        [object]$TerminalsConfig,
+
+        [Parameter(Mandatory = $true)]
+        [object]$ScheduleSettings,
+
+        [switch]$UseFallback,
+        [switch]$NoPause
+    )
+
+    $taskName = $ScheduleSettings.scheduledTask.taskName
+    if ([string]::IsNullOrWhiteSpace($taskName)) {
+        $taskName = 'WindowsMaintenanceTerminalGrid'
+    }
+
+    $targetRelativePath = 'scripts/startup/launcher_startup_safe.ps1'
+    $targetPath = Resolve-StartupProjectPath -Path $targetRelativePath -ProjectRoot $ProjectRoot
+    $delay = Get-StartupSafeDelay -ScheduleSettings $ScheduleSettings -DelaySeconds -1
+
+    $launcherArguments = @('-DryRun')
+    if ($UseFallback.IsPresent) {
+        $launcherArguments += '-UseFallback'
+    }
+    if ($NoPause.IsPresent) {
+        $launcherArguments += '-NoPause'
+    }
+
+    $powershellArguments = @(
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        $targetPath
+    ) + $launcherArguments
+
+    return [PSCustomObject]@{
+        TaskName = $taskName
+        Description = 'Open Windows Maintenance Terminal Grid in startup_safe dry-run mode at user logon.'
+        TargetRelativePath = $targetRelativePath
+        TargetPath = $targetPath
+        PowerShellExe = 'powershell.exe'
+        PowerShellArguments = @($powershellArguments)
+        ActionArguments = ConvertTo-StartupArgumentText -Arguments $powershellArguments
+        Trigger = 'AtLogon'
+        DelaySeconds = $delay.Seconds
+        DelaySource = $delay.Source
+        UserId = Get-StartupTaskUserId
+        LogonType = 'Interactive'
+        RunLevel = 'Limited'
+        DryRun = $true
+        StartupMode = $ScheduleSettings.startup.mode
+        AllowStartupHeavyCommands = [bool]$TerminalsConfig.allowStartupHeavyCommands
+        AllowHeavyCommandsOnStartup = [bool]$ScheduleSettings.startup.allowHeavyCommandsOnStartup
+        AllowRealMaintenance = [bool]$TerminalsConfig.allowRealMaintenance
+        AutoCreate = [bool]$ScheduleSettings.scheduledTask.autoCreate
+    }
+}
+
+function Test-StartupScheduledTaskPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Plan,
+
+        [Parameter(Mandatory = $true)]
+        [object]$TerminalsConfig,
+
+        [Parameter(Mandatory = $true)]
+        [object]$ScheduleSettings
+    )
+
+    $violations = @()
+
+    if ($ScheduleSettings.startup.mode -ne 'startup_safe') {
+        $violations += "startup.mode must be 'startup_safe'."
+    }
+    if ([bool]$ScheduleSettings.startup.allowHeavyCommandsOnStartup) {
+        $violations += 'startup.allowHeavyCommandsOnStartup must remain false.'
+    }
+    if ([bool]$TerminalsConfig.allowStartupHeavyCommands) {
+        $violations += 'allowStartupHeavyCommands must remain false.'
+    }
+    if ([bool]$TerminalsConfig.allowRealMaintenance) {
+        $violations += 'allowRealMaintenance must remain false.'
+    }
+    if ($ScheduleSettings.scheduledTask.taskName -ne 'WindowsMaintenanceTerminalGrid') {
+        $violations += 'scheduledTask.taskName must be WindowsMaintenanceTerminalGrid.'
+    }
+    if ($Plan.TargetRelativePath -ne 'scripts/startup/launcher_startup_safe.ps1') {
+        $violations += 'scheduled task target must be scripts/startup/launcher_startup_safe.ps1.'
+    }
+    if ((Split-Path -Leaf $Plan.TargetPath) -ne 'launcher_startup_safe.ps1') {
+        $violations += 'scheduled task target file must be launcher_startup_safe.ps1.'
+    }
+    if ($Plan.ActionArguments -notmatch '-DryRun') {
+        $violations += 'scheduled task action must include -DryRun.'
+    }
+    if ($Plan.TargetPath -match 'maintenance[_-]real' -or $Plan.ActionArguments -match 'maintenance[_-]real') {
+        $violations += 'scheduled task action must not target maintenance real.'
+    }
+    if ($Plan.RunLevel -ne 'Limited') {
+        $violations += 'scheduled task run level must remain Limited by default.'
+    }
+    if ($Plan.LogonType -ne 'Interactive') {
+        $violations += 'scheduled task logon type must remain Interactive.'
+    }
+
+    return [PSCustomObject]@{
+        IsSafe = ($violations.Count -eq 0)
+        Violations = $violations
+    }
+}
