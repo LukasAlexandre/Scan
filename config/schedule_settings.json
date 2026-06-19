@@ -1,0 +1,30 @@
+{
+  "version": "0.1.0",
+  "startup": {
+    "enabled": false,
+    "mode": "startup_safe",
+    "delaySeconds": 20,
+    "runVisible": true,
+    "runWithHighestPrivileges": false,
+    "allowHeavyCommandsOnStartup": false
+  },
+  "scheduledTask": {
+    "taskName": "WindowsMaintenanceTerminalGrid",
+    "trigger": "AtLogon",
+    "createdByProject": true,
+    "autoCreate": false,
+    "autoRemove": false
+  },
+  "safety": {
+    "requireManualInstall": true,
+    "requireAdminForRealMaintenance": true,
+    "requireConfirmationForChkdskRepair": true,
+    "preventDuplicateExecution": true
+  },
+  "logs": {
+    "baseDirectory": "logs",
+    "createRunFolder": true,
+    "summaryFileName": "summary.json",
+    "retentionDays": 30
+  }
+}

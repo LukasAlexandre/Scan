@@ -1,0 +1,54 @@
+{
+  "version": "0.1.0",
+  "terminalApp": {
+    "preferred": "WindowsTerminal",
+    "fallback": "PowerShellWindow",
+    "fontFace": "Cascadia Mono",
+    "fontSize": 13,
+    "applyGlobalSystemFontChange": false
+  },
+  "layout": {
+    "mode": "grid_2x2",
+    "targetMonitor": "primary",
+    "columns": 2,
+    "rows": 2
+  },
+  "effects": {
+    "asciiBanner": true,
+    "loadingBar": true,
+    "spinner": true,
+    "typingEffect": true,
+    "timestamps": true,
+    "verboseLogs": true
+  },
+  "terminalNames": {
+    "analytics": "ANALYTICS",
+    "scanning": "SCANNING",
+    "processing": "PROCESSING",
+    "cleaning": "CLEANING"
+  },
+  "colors": {
+    "analytics": {
+      "foreground": "Green",
+      "accent": "DarkGreen"
+    },
+    "scanning": {
+      "foreground": "Cyan",
+      "accent": "Blue"
+    },
+    "processing": {
+      "foreground": "Red",
+      "accent": "DarkRed"
+    },
+    "cleaning": {
+      "foreground": "Yellow",
+      "accent": "DarkYellow"
+    }
+  },
+  "banners": {
+    "analytics": "ANALYTICS",
+    "scanning": "SCANNING",
+    "processing": "PROCESSING",
+    "cleaning": "CLEANING"
+  }
+}

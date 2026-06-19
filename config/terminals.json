@@ -1,0 +1,65 @@
+{
+  "version": "0.1.0",
+  "defaultMode": "startup_safe",
+  "allowRealMaintenance": false,
+  "allowStartupHeavyCommands": false,
+  "requireAdminForRealMaintenance": true,
+  "keepTerminalOpenAfterFinish": true,
+  "logsEnabled": true,
+  "terminals": [
+    {
+      "id": "analytics",
+      "title": "ANALYTICS",
+      "description": "Analise e reparo da imagem do Windows via DISM em modo real controlado.",
+      "colorName": "green",
+      "ansiColor": "Green",
+      "safeModeEnabled": true,
+      "realCommandEnabled": false,
+      "scriptPath": "scripts/terminals/analytics_dism.ps1",
+      "plannedRealCommand": "DISM /Online /Cleanup-Image /RestoreHealth",
+      "startupSafeBehavior": "visual_only",
+      "requiresAdminForRealMode": true
+    },
+    {
+      "id": "scanning",
+      "title": "SCANNING",
+      "description": "Verificacao de arquivos protegidos do sistema via SFC em modo real controlado.",
+      "colorName": "blue",
+      "ansiColor": "Cyan",
+      "safeModeEnabled": true,
+      "realCommandEnabled": false,
+      "scriptPath": "scripts/terminals/scanning_sfc.ps1",
+      "plannedRealCommand": "sfc /scannow",
+      "startupSafeBehavior": "visual_only",
+      "requiresAdminForRealMode": true
+    },
+    {
+      "id": "processing",
+      "title": "PROCESSING",
+      "description": "Verificacao de disco via CHKDSK em modo real controlado.",
+      "colorName": "red",
+      "ansiColor": "Red",
+      "safeModeEnabled": true,
+      "realCommandEnabled": false,
+      "scriptPath": "scripts/terminals/processing_chkdsk.ps1",
+      "plannedSafeCommand": "chkdsk C: /scan",
+      "plannedDeepCommand": "chkdsk C: /r",
+      "startupSafeBehavior": "visual_only",
+      "requiresAdminForRealMode": true,
+      "requiresManualConfirmationForDeepCommand": true
+    },
+    {
+      "id": "cleaning",
+      "title": "CLEANING",
+      "description": "Otimizacao da unidade via ferramenta nativa do Windows em modo real controlado.",
+      "colorName": "orange",
+      "ansiColor": "Yellow",
+      "safeModeEnabled": true,
+      "realCommandEnabled": false,
+      "scriptPath": "scripts/terminals/cleaning_optimize.ps1",
+      "plannedRealCommand": "defrag C: /O /U /V",
+      "startupSafeBehavior": "visual_only",
+      "requiresAdminForRealMode": true
+    }
+  ]
+}

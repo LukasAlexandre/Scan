@@ -1,0 +1,17 @@
+logs/*
+!logs/.gitkeep
+
+tmp/*
+!tmp/.gitkeep
+
+*.log
+*.tmp
+*.bak
+*.old
+
+.DS_Store
+Thumbs.db
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
