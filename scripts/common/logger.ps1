@@ -30,6 +30,25 @@ function Resolve-WmtgProjectPath {
     return $fullPath
 }
 
+function Get-WmtgLogColor {
+    [CmdletBinding()]
+    param(
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'SUCCESS', 'DEBUG')]
+        [string]$Level = 'INFO',
+
+        [ConsoleColor]$Fallback = [ConsoleColor]::Gray
+    )
+
+    switch ($Level) {
+        'INFO' { return [ConsoleColor]::Cyan }
+        'WARN' { return [ConsoleColor]::Yellow }
+        'ERROR' { return [ConsoleColor]::Red }
+        'SUCCESS' { return [ConsoleColor]::Green }
+        'DEBUG' { return [ConsoleColor]::DarkGray }
+        default { return $Fallback }
+    }
+}
+
 function New-RunLogDirectory {
     [CmdletBinding()]
     param(
@@ -73,14 +92,24 @@ function Write-Log {
         [string]$Level = 'INFO',
 
         [string]$Terminal = 'SYSTEM',
+
+        [Alias('LogFile')]
         [string]$LogPath,
+
         [string]$ProjectRoot,
         [switch]$NoConsole,
-        [ConsoleColor]$Color = [ConsoleColor]::Gray
+        [ConsoleColor]$Color,
+        [string]$Prefix = 'STATUS'
     )
 
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $line = "[{0}] [{1}] [{2}] {3}" -f $timestamp, $Terminal, $Level, $Message
+    if (-not $PSBoundParameters.ContainsKey('Color')) {
+        $Color = Get-WmtgLogColor -Level $Level
+    }
+
+    $safePrefix = if ([string]::IsNullOrWhiteSpace($Prefix)) { 'STATUS' } else { $Prefix.ToUpperInvariant() }
+    $safeTerminal = if ([string]::IsNullOrWhiteSpace($Terminal)) { 'SYSTEM' } else { $Terminal.ToUpperInvariant() }
+    $line = "[{0}] [{1}] [{2}] [{3}] {4}" -f $timestamp, $safeTerminal, $Level, $safePrefix, $Message
 
     if (-not $NoConsole) {
         Write-Host $line -ForegroundColor $Color
@@ -108,12 +137,20 @@ function Write-ColoredLog {
         [string]$Level = 'INFO',
 
         [string]$Terminal = 'SYSTEM',
+
+        [Alias('LogFile')]
         [string]$LogPath,
+
         [string]$ProjectRoot,
-        [ConsoleColor]$Color = [ConsoleColor]::Gray
+        [ConsoleColor]$Color,
+        [string]$Prefix = 'VISUAL'
     )
 
-    return Write-Log -Message $Message -Level $Level -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color $Color
+    if ($PSBoundParameters.ContainsKey('Color')) {
+        return Write-Log -Message $Message -Level $Level -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color $Color -Prefix $Prefix
+    }
+
+    return Write-Log -Message $Message -Level $Level -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Prefix $Prefix
 }
 
 function Write-SectionLog {
@@ -123,12 +160,23 @@ function Write-SectionLog {
         [string]$Title,
 
         [string]$Terminal = 'SYSTEM',
+
+        [Alias('LogFile')]
         [string]$LogPath,
-        [string]$ProjectRoot
+
+        [string]$ProjectRoot,
+        [int]$Width = 72
     )
 
-    $line = ('=' * 12) + " $Title " + ('=' * 12)
-    return Write-Log -Message $line -Level 'INFO' -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color Cyan
+    $safeWidth = [Math]::Max(24, [Math]::Min($Width, 140))
+    $label = " $Title "
+    $side = [Math]::Max(4, [Math]::Floor(($safeWidth - $label.Length) / 2))
+    $line = ('=' * $side) + $label + ('=' * $side)
+    if ($line.Length -gt $safeWidth) {
+        $line = $line.Substring(0, $safeWidth)
+    }
+
+    return Write-Log -Message $line -Level 'INFO' -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color Cyan -Prefix 'SECTION'
 }
 
 function Write-WarningLog {
@@ -138,11 +186,14 @@ function Write-WarningLog {
         [string]$Message,
 
         [string]$Terminal = 'SYSTEM',
+
+        [Alias('LogFile')]
         [string]$LogPath,
+
         [string]$ProjectRoot
     )
 
-    return Write-Log -Message $Message -Level 'WARN' -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color Yellow
+    return Write-Log -Message $Message -Level 'WARN' -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color Yellow -Prefix 'WARN'
 }
 
 function Write-ErrorLog {
@@ -152,9 +203,12 @@ function Write-ErrorLog {
         [string]$Message,
 
         [string]$Terminal = 'SYSTEM',
+
+        [Alias('LogFile')]
         [string]$LogPath,
+
         [string]$ProjectRoot
     )
 
-    return Write-Log -Message $Message -Level 'ERROR' -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color Red
+    return Write-Log -Message $Message -Level 'ERROR' -Terminal $Terminal -LogPath $LogPath -ProjectRoot $ProjectRoot -Color Red -Prefix 'ERROR'
 }

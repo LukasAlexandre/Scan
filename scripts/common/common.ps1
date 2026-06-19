@@ -35,6 +35,7 @@ $requiredFunctions = @(
     'Show-Banner',
     'Show-TerminalIntro',
     'Show-TypingText',
+    'Write-TypewriterText',
     'Show-LoadingBar',
     'Show-Spinner',
     'Start-VisualDelay',
