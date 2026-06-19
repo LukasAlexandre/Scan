@@ -26,8 +26,14 @@ remove essa pasta no bloco `finally`, mesmo se o teste falhar.
 Execute todos os testes de uma vez, a partir da raiz do projeto:
 
 ```powershell
-pwsh -File tests/run_all_safe_tests.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\run_all_safe_tests.ps1
 ```
+
+> A suite foi validada em Windows PowerShell 5.1 (`powershell.exe`), o
+> unico runtime disponivel no ambiente de desenvolvimento usado neste
+> projeto. Se `pwsh` (PowerShell 7+) estiver instalado, o mesmo comando com
+> `pwsh -File tests/run_all_safe_tests.ps1` deve funcionar, mas isso ainda
+> nao foi validado.
 
 O runner:
 
@@ -44,7 +50,7 @@ Tambem e possivel executar um teste individual, passando opcionalmente uma
 pasta de resultados:
 
 ```powershell
-pwsh -File tests/test_config_json.ps1 -ResultsDirectory tests/results/manual
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\test_config_json.ps1 -ResultsDirectory tests\results\manual
 ```
 
 ## Testes incluidos
@@ -67,3 +73,9 @@ pwsh -File tests/test_config_json.ps1 -ResultsDirectory tests/results/manual
 Cada execucao cria uma subpasta nova em `tests/results/`. Essas subpastas
 sao ignoradas pelo Git (`tests/results/*` no `.gitignore`, exceto o
 `.gitkeep` que mantem a pasta versionada vazia).
+
+Ultimo resultado registrado (Bloco 10): **9/9 testes PASS, 199 checagens,
+0 erros**. Relatorio completo com evidencias por teste em
+[Docs/08_testes/relatorio_validacao_local_bloco_10.md](../Docs/08_testes/relatorio_validacao_local_bloco_10.md).
+Guia de uso orientado a primeira execucao em
+[Docs/09_execucao/validacao_local.md](../Docs/09_execucao/validacao_local.md).
