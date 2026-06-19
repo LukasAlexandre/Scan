@@ -1,5 +1,6 @@
 param(
     [string]$Mode = 'startup_safe',
+    [string]$RunLogDirectory = '',
     [switch]$DryRun,
     [switch]$UseFallback,
     [switch]$NoPause
@@ -19,10 +20,10 @@ $projectRoot = Resolve-LauncherProjectRoot -StartPath $launcherScriptDirectory
 . (Join-Path $projectRoot 'scripts/common/common.ps1')
 
 $effectiveMode = Normalize-LauncherMode -Mode $Mode
-$context = New-LauncherContext -ProjectRoot $projectRoot -Mode $effectiveMode
+$context = New-LauncherContext -ProjectRoot $projectRoot -Mode $effectiveMode -RunLogDirectory $RunLogDirectory
 
 Write-SectionLog -Title 'Block 05 launcher grid 2x2' -Terminal 'LAUNCHER' -LogFile $context.LauncherLogFile -ProjectRoot $projectRoot | Out-Null
-Write-Log -Message "Launcher started with Mode='$effectiveMode', DryRun='true', UseFallback='$($UseFallback.IsPresent)', NoPause='$($NoPause.IsPresent)'." -Level 'INFO' -Terminal 'LAUNCHER' -LogFile $context.LauncherLogFile -ProjectRoot $projectRoot | Out-Null
+Write-Log -Message "Launcher started with Mode='$effectiveMode', DryRun='true', UseFallback='$($UseFallback.IsPresent)', NoPause='$($NoPause.IsPresent)', RunLogDirectory='$($context.RunLogDirectory)'." -Level 'INFO' -Terminal 'LAUNCHER' -LogFile $context.LauncherLogFile -ProjectRoot $projectRoot | Out-Null
 
 if (-not $DryRun.IsPresent) {
     Write-WarningLog -Message 'DryRun switch was not supplied; Block 05 forces -DryRun for every terminal command.' -Terminal 'LAUNCHER' -LogFile $context.LauncherLogFile -ProjectRoot $projectRoot | Out-Null
