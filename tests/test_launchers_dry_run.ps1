@@ -89,21 +89,27 @@ try {
     $layoutOrder = (@($terminalCommands) | ForEach-Object { $_.Id }) -join ','
     Add-Check -Name 'terminal_commands_fixed_2x2_order' -Passed ($layoutOrder -eq 'analytics,scanning,processing,cleaning') -Message "Order: $layoutOrder"
 
-    $wtArguments = Build-WindowsTerminalArgumentList -TerminalCommands $terminalCommands -ProjectRoot $projectRoot
-    $wtArgumentText = ConvertTo-LauncherArgumentText -Arguments $wtArguments
-    $splitCount = @($wtArguments | Where-Object { $_ -eq 'split-pane' }).Count
-    $sizeHalfCount = @($wtArguments | Where-Object { $_ -eq '0.5' }).Count
-    Add-Check -Name 'windows_terminal_uses_new_window' -Passed (($wtArguments[0] -eq '--window') -and ($wtArguments[1] -eq 'new')) -Message $wtArgumentText
+    $bootstrapArguments = Build-WindowsTerminalBootstrapArgumentList -TerminalCommands $terminalCommands -ProjectRoot $projectRoot
+    $bootstrapArgumentText = ConvertTo-LauncherArgumentText -Arguments $bootstrapArguments
+    $completionArguments = Build-WindowsTerminalGridCompletionArgumentList -TerminalCommands $terminalCommands -ProjectRoot $projectRoot
+    $completionArgumentText = ConvertTo-LauncherArgumentText -Arguments $completionArguments
+    $combinedArgumentText = "$bootstrapArgumentText ; $completionArgumentText"
+
+    $splitCount = @($completionArguments | Where-Object { $_ -eq 'split-pane' }).Count
+    $sizeHalfCount = @($completionArguments | Where-Object { $_ -eq '0.5' }).Count
+    Add-Check -Name 'windows_terminal_bootstrap_uses_new_window' -Passed (($bootstrapArguments[0] -eq '--window') -and ($bootstrapArguments[1] -eq 'new')) -Message $bootstrapArgumentText
+    Add-Check -Name 'windows_terminal_completion_targets_last_window' -Passed (($completionArguments[0] -eq '-w') -and ($completionArguments[1] -eq 'last')) -Message $completionArgumentText
     Add-Check -Name 'windows_terminal_has_three_splits' -Passed ($splitCount -eq 3) -Message "split-pane count=$splitCount"
     Add-Check -Name 'windows_terminal_splits_are_half_size' -Passed ($sizeHalfCount -eq 3) -Message "0.5 split size count=$sizeHalfCount"
 
     # Expected 2x2 grid: ANALYTICS (top-left) | SCANNING (top-right) over PROCESSING (bottom-left) | CLEANING (bottom-right).
-    # Build order: new-tab ANALYTICS -> split-pane -H PROCESSING (below) -> move-focus up -> split-pane -V SCANNING (right of ANALYTICS)
-    # -> move-focus down -> split-pane -V CLEANING (right of PROCESSING).
-    $expectedSequencePattern = 'new-tab --title ANALYTICS .*? ; split-pane -H --size 0\.5 --title PROCESSING .*? ; move-focus up ; split-pane -V --size 0\.5 --title SCANNING .*? ; move-focus down ; split-pane -V --size 0\.5 --title CLEANING '
-    Add-Check -Name 'windows_terminal_grid_2x2_layout_order' -Passed ($wtArgumentText -match $expectedSequencePattern) -Message $wtArgumentText
-    Add-Check -Name 'windows_terminal_returns_to_analytics_before_scanning_split' -Passed ($wtArgumentText -match 'move-focus up ; split-pane -V --size 0\.5 --title SCANNING') -Message $wtArgumentText
-    Add-Check -Name 'windows_terminal_returns_to_processing_before_cleaning_split' -Passed ($wtArgumentText -match 'move-focus down ; split-pane -V --size 0\.5 --title CLEANING') -Message $wtArgumentText
+    # Build order: new-tab ANALYTICS (bootstrap call, "--window new") -> [wait for window to be ready] ->
+    # split-pane -H PROCESSING (below) -> move-focus up -> split-pane -V SCANNING (right of ANALYTICS)
+    # -> move-focus down -> split-pane -V CLEANING (right of PROCESSING), all in the completion call (targets "-w last").
+    $expectedSequencePattern = 'new-tab --title ANALYTICS .*? ; -w last split-pane -H --size 0\.5 --title PROCESSING .*? ; move-focus up ; split-pane -V --size 0\.5 --title SCANNING .*? ; move-focus down ; split-pane -V --size 0\.5 --title CLEANING '
+    Add-Check -Name 'windows_terminal_grid_2x2_layout_order' -Passed ($combinedArgumentText -match $expectedSequencePattern) -Message $combinedArgumentText
+    Add-Check -Name 'windows_terminal_returns_to_analytics_before_scanning_split' -Passed ($combinedArgumentText -match 'move-focus up ; split-pane -V --size 0\.5 --title SCANNING') -Message $combinedArgumentText
+    Add-Check -Name 'windows_terminal_returns_to_processing_before_cleaning_split' -Passed ($combinedArgumentText -match 'move-focus down ; split-pane -V --size 0\.5 --title CLEANING') -Message $combinedArgumentText
 } catch {
     Add-Check -Name 'terminal_command_assembly' -Passed $false -Message $_.Exception.Message
 }

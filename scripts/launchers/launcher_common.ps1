@@ -427,14 +427,11 @@ function Add-WindowsTerminalPaneArguments {
     }
 }
 
-function Build-WindowsTerminalArgumentList {
+function Get-LauncherTerminalCommandsById {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [object[]]$TerminalCommands,
-
-        [Parameter(Mandatory = $true)]
-        [string]$ProjectRoot
+        [object[]]$TerminalCommands
     )
 
     if ($TerminalCommands.Count -ne 4) {
@@ -452,6 +449,21 @@ function Build-WindowsTerminalArgumentList {
         }
     }
 
+    return $commandsById
+}
+
+function Build-WindowsTerminalBootstrapArgumentList {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$TerminalCommands,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot
+    )
+
+    $commandsById = Get-LauncherTerminalCommandsById -TerminalCommands $TerminalCommands
+
     $arguments = New-Object 'System.Collections.Generic.List[string]'
 
     [void]$arguments.Add('--window')
@@ -459,7 +471,28 @@ function Build-WindowsTerminalArgumentList {
 
     # top-left: ANALYTICS, the only pane and starting focus point.
     Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'new-tab' -TerminalCommand $commandsById['analytics'] -ProjectRoot $ProjectRoot
-    [void]$arguments.Add(';')
+
+    return @($arguments.ToArray())
+}
+
+function Build-WindowsTerminalGridCompletionArgumentList {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$TerminalCommands,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectRoot
+    )
+
+    $commandsById = Get-LauncherTerminalCommandsById -TerminalCommands $TerminalCommands
+
+    $arguments = New-Object 'System.Collections.Generic.List[string]'
+
+    # "last" targets the most recently used Windows Terminal window, i.e. the one the bootstrap
+    # call just created with "--window new" (and that the caller waited to become ready).
+    [void]$arguments.Add('-w')
+    [void]$arguments.Add('last')
 
     # bottom-left: PROCESSING, horizontal split stacks it below ANALYTICS. Focus moves to PROCESSING.
     Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'split-pane' -SplitDirection '-H' -SplitSize '0.5' -TerminalCommand $commandsById['processing'] -ProjectRoot $ProjectRoot
@@ -483,6 +516,43 @@ function Build-WindowsTerminalArgumentList {
     return @($arguments.ToArray())
 }
 
+function Wait-ForWindowsTerminalReady {
+    [CmdletBinding()]
+    param(
+        [int[]]$ExistingProcessIds = @(),
+        [int]$ColdStartTimeoutSeconds = 5,
+        [int]$WarmStartDelayMilliseconds = 700
+    )
+
+    if ($ExistingProcessIds.Count -eq 0) {
+        # Cold start: no WindowsTerminal.exe process existed yet, so the app has to be activated
+        # from scratch. Poll for the new process (with a real window handle) instead of guessing a delay.
+        $deadline = (Get-Date).AddSeconds($ColdStartTimeoutSeconds)
+        do {
+            $newWindow = Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue |
+                Where-Object { $_.MainWindowHandle -ne 0 } |
+                Select-Object -First 1
+
+            if ($newWindow) {
+                # Grace buffer: a window handle existing does not guarantee the pane tree and
+                # focus state have finished settling yet.
+                Start-Sleep -Milliseconds 300
+                return $true
+            }
+
+            Start-Sleep -Milliseconds 150
+        } while ((Get-Date) -lt $deadline)
+
+        return $false
+    }
+
+    # Warm start: Windows Terminal already runs as a single-instance app (monarch/peasant model), so
+    # opening another window does not spawn a new process to poll for - it is created inside an
+    # already-loaded instance. A short fixed delay is enough for the new window to settle.
+    Start-Sleep -Milliseconds $WarmStartDelayMilliseconds
+    return $true
+}
+
 function Start-TerminalGrid {
     [CmdletBinding()]
     param(
@@ -500,18 +570,31 @@ function Start-TerminalGrid {
         throw 'wt.exe was not found.'
     }
 
-    $wtArguments = Build-WindowsTerminalArgumentList -TerminalCommands $TerminalCommands -ProjectRoot $ProjectRoot
-    $wtArgumentText = ConvertTo-LauncherArgumentText -Arguments $wtArguments
+    $bootstrapArguments = Build-WindowsTerminalBootstrapArgumentList -TerminalCommands $TerminalCommands -ProjectRoot $ProjectRoot
+    $bootstrapArgumentText = ConvertTo-LauncherArgumentText -Arguments $bootstrapArguments
 
-    Write-Log -Message 'Starting Windows Terminal grid using wt.exe.' -Level 'INFO' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
-    Write-Log -Message "Windows Terminal arguments: $wtArgumentText" -Level 'DEBUG' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
+    $completionArguments = Build-WindowsTerminalGridCompletionArgumentList -TerminalCommands $TerminalCommands -ProjectRoot $ProjectRoot
+    $completionArgumentText = ConvertTo-LauncherArgumentText -Arguments $completionArguments
 
-    Start-Process -FilePath $wtCommand.Source -ArgumentList $wtArgumentText -WorkingDirectory $ProjectRoot | Out-Null
+    Write-Log -Message 'Starting Windows Terminal grid using wt.exe (two-step bootstrap to avoid a cold-start focus race).' -Level 'INFO' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
+    Write-Log -Message "Windows Terminal bootstrap arguments: $bootstrapArgumentText" -Level 'DEBUG' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
+
+    $existingProcessIds = @(Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+
+    Start-Process -FilePath $wtCommand.Source -ArgumentList $bootstrapArgumentText -WorkingDirectory $ProjectRoot | Out-Null
+
+    $windowReady = Wait-ForWindowsTerminalReady -ExistingProcessIds $existingProcessIds
+    if (-not $windowReady) {
+        Write-WarningLog -Message 'Timed out waiting for the new WindowsTerminal window to report itself ready; continuing with pane assembly anyway.' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
+    }
+
+    Write-Log -Message "Windows Terminal grid-completion arguments: $completionArgumentText" -Level 'DEBUG' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
+    Start-Process -FilePath $wtCommand.Source -ArgumentList $completionArgumentText -WorkingDirectory $ProjectRoot | Out-Null
 
     return [PSCustomObject]@{
         Engine = 'wt.exe'
         PaneCount = $TerminalCommands.Count
-        ArgumentText = $wtArgumentText
+        ArgumentText = "$bootstrapArgumentText ; $completionArgumentText"
     }
 }
 

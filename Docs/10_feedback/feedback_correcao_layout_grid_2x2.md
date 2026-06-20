@@ -8,6 +8,53 @@ esquerda), `SCANNING` (topo direita), `PROCESSING` (baixo esquerda),
 `CLEANING` (baixo direita) — sem tocar em segurança, dry-run,
 `maintenance_real`, `startup_safe` ou tarefa agendada.
 
+## Atualização — race condition de cold-start do wt.exe
+
+Após o primeiro ajuste (ordem dos panes por `Id`), o usuário reportou via
+print de tela que o layout ainda saía errado em algumas execuções (`ANALYTICS`
+ocupando a faixa superior inteira, `PROCESSING | SCANNING | CLEANING` em três
+colunas embaixo), mas saía correto em outras (ex.: via `Ctrl+Shift+Y`, com o
+Windows Terminal já aberto de uma execução anterior). Mesmo comando, mesmos
+argumentos, resultado diferente — sinal de condição de corrida, não de bug de
+lógica na sequência.
+
+**Causa:** quando nenhum processo `WindowsTerminal.exe` está em execução
+("cold start"), o `wt.exe` precisa inicializar o aplicativo do zero antes de
+processar os comandos `split-pane`/`move-focus` que vêm na mesma linha de
+comando. Esse processamento podia ocorrer antes da janela/pane tree terminar
+de se estabilizar, fazendo o `move-focus` perder a referência esperada. Com o
+Terminal já aberto ("warm start"), a mesma sequência processava rápido e
+corretamente — por isso o comportamento parecia aleatório.
+
+**Correção:** `Start-TerminalGrid` agora monta o grid em **duas chamadas**
+separadas ao `wt.exe`, com uma espera entre elas:
+
+1. Chamada de bootstrap: `--window new new-tab --title ANALYTICS ...` —
+   cria só a janela com o primeiro pane, sem nenhum `split-pane`/`move-focus`
+   sensível a foco.
+2. `Wait-ForWindowsTerminalReady` aguarda a janela ficar pronta antes de
+   continuar:
+   - **Cold start** (nenhum `WindowsTerminal.exe` rodando antes da chamada 1):
+     faz polling por até 5s esperando o processo aparecer com
+     `MainWindowHandle` válido, mais um buffer de 300ms.
+   - **Warm start** (já havia `WindowsTerminal.exe` rodando, já que o app é
+     single-instance e reaproveita o mesmo processo para novas janelas —
+     modelo monarch/peasant, sem PID novo para detectar): usa um delay fixo
+     curto de 700ms, evitando o timeout de 5s desnecessário que a primeira
+     versão deste fix sofria sempre que já havia uma janela aberta.
+3. Chamada de conclusão: `-w last split-pane -H ... ; move-focus up ;
+   split-pane -V ... ; move-focus down ; split-pane -V ...` — usa `-w last`
+   (janela mais recentemente usada) para reanexar exatamente à janela criada
+   no passo 1, preservando a semântica de "sempre abre uma janela nova" do
+   `--window new` original.
+
+`Build-WindowsTerminalArgumentList` foi dividida em
+`Build-WindowsTerminalBootstrapArgumentList` (passo 1) e
+`Build-WindowsTerminalGridCompletionArgumentList` (passo 3).
+`tests/test_launchers_dry_run.ps1` foi atualizado para validar as duas
+funções separadamente e a sequência combinada. Suite completa revalidada:
+**PASS — 9 testes, 216 checks, 0 erros**.
+
 ## Problema visual identificado
 
 O layout resultante estava assim:
@@ -133,7 +180,9 @@ Cada painel ocupa ~50% da largura e ~50% da altura da janela.
 - Confirmado por inspeção do argumento gerado que toda chamada ao
   `powershell.exe` de cada pane mantém `-DryRun` e `-Mode startup_safe`.
 - Nenhuma referência a `launcher_maintenance_real.ps1` foi adicionada em
-  `Build-WindowsTerminalArgumentList` ou em qualquer arquivo alterado.
+  `Build-WindowsTerminalBootstrapArgumentList`,
+  `Build-WindowsTerminalGridCompletionArgumentList` ou em qualquer arquivo
+  alterado.
 - `git diff --stat config/` não mostra nenhuma alteração feita nesta
   correção (o único diff pendente em `config/visual_settings.json` já
   existia antes desta sessão e não foi tocado aqui).
