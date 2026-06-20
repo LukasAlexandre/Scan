@@ -85,6 +85,25 @@ try {
     }
     Add-Check -Name 'all_terminal_commands_have_dry_run_argument' -Passed $allHaveDryRun -Message '-DryRun literal must be present in every assembled argument list.'
     Add-Check -Name 'all_terminal_commands_use_startup_safe_mode' -Passed $allHaveStartupSafeMode -Message 'Mode must remain startup_safe for this validation.'
+
+    $layoutOrder = (@($terminalCommands) | ForEach-Object { $_.Id }) -join ','
+    Add-Check -Name 'terminal_commands_fixed_2x2_order' -Passed ($layoutOrder -eq 'analytics,scanning,processing,cleaning') -Message "Order: $layoutOrder"
+
+    $wtArguments = Build-WindowsTerminalArgumentList -TerminalCommands $terminalCommands -ProjectRoot $projectRoot
+    $wtArgumentText = ConvertTo-LauncherArgumentText -Arguments $wtArguments
+    $splitCount = @($wtArguments | Where-Object { $_ -eq 'split-pane' }).Count
+    $sizeHalfCount = @($wtArguments | Where-Object { $_ -eq '0.5' }).Count
+    Add-Check -Name 'windows_terminal_uses_new_window' -Passed (($wtArguments[0] -eq '--window') -and ($wtArguments[1] -eq 'new')) -Message $wtArgumentText
+    Add-Check -Name 'windows_terminal_has_three_splits' -Passed ($splitCount -eq 3) -Message "split-pane count=$splitCount"
+    Add-Check -Name 'windows_terminal_splits_are_half_size' -Passed ($sizeHalfCount -eq 3) -Message "0.5 split size count=$sizeHalfCount"
+
+    # Expected 2x2 grid: ANALYTICS (top-left) | SCANNING (top-right) over PROCESSING (bottom-left) | CLEANING (bottom-right).
+    # Build order: new-tab ANALYTICS -> split-pane -H PROCESSING (below) -> move-focus up -> split-pane -V SCANNING (right of ANALYTICS)
+    # -> move-focus down -> split-pane -V CLEANING (right of PROCESSING).
+    $expectedSequencePattern = 'new-tab --title ANALYTICS .*? ; split-pane -H --size 0\.5 --title PROCESSING .*? ; move-focus up ; split-pane -V --size 0\.5 --title SCANNING .*? ; move-focus down ; split-pane -V --size 0\.5 --title CLEANING '
+    Add-Check -Name 'windows_terminal_grid_2x2_layout_order' -Passed ($wtArgumentText -match $expectedSequencePattern) -Message $wtArgumentText
+    Add-Check -Name 'windows_terminal_returns_to_analytics_before_scanning_split' -Passed ($wtArgumentText -match 'move-focus up ; split-pane -V --size 0\.5 --title SCANNING') -Message $wtArgumentText
+    Add-Check -Name 'windows_terminal_returns_to_processing_before_cleaning_split' -Passed ($wtArgumentText -match 'move-focus down ; split-pane -V --size 0\.5 --title CLEANING') -Message $wtArgumentText
 } catch {
     Add-Check -Name 'terminal_command_assembly' -Passed $false -Message $_.Exception.Message
 }
@@ -97,6 +116,7 @@ Add-Check -Name 'grid_launcher_references_fallback_script' -Passed ((Get-Content
 $tempRunFolderName = "_tests_tmp_grid_consolidate_$($PID)_$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $tempRunDirectory = Join-Path (Join-Path $projectRoot 'logs') $tempRunFolderName
 $gridLauncherPath = Join-Path $launchersDirectory 'launcher_grid_2x2.ps1'
+$wtProcessIdsBefore = @(Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
 
 try {
     try {
@@ -109,8 +129,9 @@ try {
     $summaryPath = Join-Path $tempRunDirectory 'summary.json'
     Add-Check -Name 'grid_launcher_consolidated_summary_written' -Passed (Test-Path -LiteralPath $summaryPath) -Message $summaryPath
 
-    $wtProcess = Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue
-    Add-Check -Name 'no_terminal_window_process_spawned' -Passed ($null -eq $wtProcess) -Message 'No WindowsTerminal.exe process should have been spawned by -ConsolidateSummaries.'
+    $wtProcessesAfter = @(Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue)
+    $newWtProcesses = @($wtProcessesAfter | Where-Object { $wtProcessIdsBefore -notcontains $_.Id })
+    Add-Check -Name 'no_terminal_window_process_spawned' -Passed ($newWtProcesses.Count -eq 0) -Message "No new WindowsTerminal.exe process should have been spawned by -ConsolidateSummaries. Existing before=$($wtProcessIdsBefore.Count), new after=$($newWtProcesses.Count)."
 } finally {
     if (Test-Path -LiteralPath $tempRunDirectory) {
         Remove-Item -LiteralPath $tempRunDirectory -Recurse -Force -ErrorAction SilentlyContinue

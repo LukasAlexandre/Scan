@@ -398,6 +398,7 @@ function Add-WindowsTerminalPaneArguments {
         [string]$Action,
 
         [string]$SplitDirection,
+        [string]$SplitSize,
 
         [Parameter(Mandatory = $true)]
         [object]$TerminalCommand,
@@ -409,6 +410,10 @@ function Add-WindowsTerminalPaneArguments {
     [void]$ArgumentList.Add($Action)
     if (-not [string]::IsNullOrWhiteSpace($SplitDirection)) {
         [void]$ArgumentList.Add($SplitDirection)
+    }
+    if ($Action -eq 'split-pane' -and -not [string]::IsNullOrWhiteSpace($SplitSize)) {
+        [void]$ArgumentList.Add('--size')
+        [void]$ArgumentList.Add($SplitSize)
     }
 
     [void]$ArgumentList.Add('--title')
@@ -436,18 +441,44 @@ function Build-WindowsTerminalArgumentList {
         throw "Windows Terminal grid requires exactly 4 terminal commands; received $($TerminalCommands.Count)."
     }
 
+    $commandsById = @{}
+    foreach ($command in $TerminalCommands) {
+        $commandsById[$command.Id] = $command
+    }
+
+    foreach ($requiredId in @('analytics', 'scanning', 'processing', 'cleaning')) {
+        if (-not $commandsById.ContainsKey($requiredId)) {
+            throw "Windows Terminal grid is missing required terminal command '$requiredId'."
+        }
+    }
+
     $arguments = New-Object 'System.Collections.Generic.List[string]'
 
-    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'new-tab' -TerminalCommand $TerminalCommands[0] -ProjectRoot $ProjectRoot
+    [void]$arguments.Add('--window')
+    [void]$arguments.Add('new')
+
+    # top-left: ANALYTICS, the only pane and starting focus point.
+    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'new-tab' -TerminalCommand $commandsById['analytics'] -ProjectRoot $ProjectRoot
     [void]$arguments.Add(';')
-    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'split-pane' -SplitDirection '-H' -TerminalCommand $TerminalCommands[1] -ProjectRoot $ProjectRoot
+
+    # bottom-left: PROCESSING, horizontal split stacks it below ANALYTICS. Focus moves to PROCESSING.
+    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'split-pane' -SplitDirection '-H' -SplitSize '0.5' -TerminalCommand $commandsById['processing'] -ProjectRoot $ProjectRoot
     [void]$arguments.Add(';')
-    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'split-pane' -SplitDirection '-V' -TerminalCommand $TerminalCommands[2] -ProjectRoot $ProjectRoot
-    [void]$arguments.Add(';')
+
     [void]$arguments.Add('move-focus')
-    [void]$arguments.Add('left')
+    [void]$arguments.Add('up')
     [void]$arguments.Add(';')
-    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'split-pane' -SplitDirection '-V' -TerminalCommand $TerminalCommands[3] -ProjectRoot $ProjectRoot
+
+    # top-right: SCANNING, vertical split places it beside ANALYTICS. Focus moves to SCANNING.
+    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'split-pane' -SplitDirection '-V' -SplitSize '0.5' -TerminalCommand $commandsById['scanning'] -ProjectRoot $ProjectRoot
+    [void]$arguments.Add(';')
+
+    [void]$arguments.Add('move-focus')
+    [void]$arguments.Add('down')
+    [void]$arguments.Add(';')
+
+    # bottom-right: CLEANING, vertical split places it beside PROCESSING.
+    Add-WindowsTerminalPaneArguments -ArgumentList $arguments -Action 'split-pane' -SplitDirection '-V' -SplitSize '0.5' -TerminalCommand $commandsById['cleaning'] -ProjectRoot $ProjectRoot
 
     return @($arguments.ToArray())
 }
