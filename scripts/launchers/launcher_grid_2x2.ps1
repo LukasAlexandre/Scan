@@ -66,7 +66,7 @@ try {
             Write-LauncherLog -RunLogDirectory $context.RunLogDirectory -RunId $context.RunId -Message 'wt.exe was not found. Delegating to launcher_fallback_windows.ps1.' -Level 'WARN' -ProjectRoot $projectRoot | Out-Null
             & $fallbackScript -Mode $effectiveMode -RunLogDirectory $context.RunLogDirectory -DryRun -NoPause:$NoPause
         } else {
-            $launchResult = Start-TerminalGrid -TerminalCommands $terminalCommands -ProjectRoot $projectRoot -LogFile $context.LauncherLogFile
+            $launchResult = Start-TerminalGrid -TerminalCommands $terminalCommands -ProjectRoot $projectRoot -VisualSettings $context.VisualSettings -LogFile $context.LauncherLogFile
             Write-LauncherLog -RunLogDirectory $context.RunLogDirectory -RunId $context.RunId -Message "Launcher handed off to $($launchResult.Engine) with $($launchResult.PaneCount) panes." -Level 'SUCCESS' -ProjectRoot $projectRoot | Out-Null
         }
 

@@ -418,6 +418,7 @@ function Add-WindowsTerminalPaneArguments {
 
     [void]$ArgumentList.Add('--title')
     [void]$ArgumentList.Add($TerminalCommand.Title)
+    [void]$ArgumentList.Add('--suppressApplicationTitle')
     [void]$ArgumentList.Add('--startingDirectory')
     [void]$ArgumentList.Add($ProjectRoot)
     [void]$ArgumentList.Add($TerminalCommand.Executable)
@@ -516,6 +517,226 @@ function Build-WindowsTerminalGridCompletionArgumentList {
     return @($arguments.ToArray())
 }
 
+function Get-WindowsTerminalSessionZoomSettings {
+    [CmdletBinding()]
+    param(
+        [object]$VisualSettings
+    )
+
+    $enabled = $true
+    $steps = 0
+    $delayMilliseconds = 500
+
+    if ($VisualSettings -and $VisualSettings.terminalApp) {
+        $terminalApp = $VisualSettings.terminalApp
+        $propertyNames = @($terminalApp.PSObject.Properties.Name)
+
+        if ($propertyNames -contains 'sessionZoomEnabled') {
+            $enabled = [bool]$terminalApp.sessionZoomEnabled
+        }
+
+        if ($propertyNames -contains 'sessionZoomOutSteps') {
+            $steps = [int]$terminalApp.sessionZoomOutSteps
+        }
+
+        if ($propertyNames -contains 'sessionZoomDelayMilliseconds') {
+            $delayMilliseconds = [int]$terminalApp.sessionZoomDelayMilliseconds
+        }
+    }
+
+    $safeSteps = [Math]::Max(0, [Math]::Min($steps, 20))
+    $safeDelay = [Math]::Max(0, [Math]::Min($delayMilliseconds, 5000))
+
+    return [PSCustomObject]@{
+        Enabled = $enabled
+        ZoomOutSteps = $safeSteps
+        DelayMilliseconds = $safeDelay
+    }
+}
+
+function Get-WindowsTerminalSessionZoomSequence {
+    [CmdletBinding()]
+    param()
+
+    return @(
+        [PSCustomObject]@{
+            Title = 'ANALYTICS'
+            MoveFocusBefore = 'first'
+        }
+        [PSCustomObject]@{
+            Title = 'SCANNING'
+            MoveFocusBefore = 'right'
+        }
+        [PSCustomObject]@{
+            Title = 'CLEANING'
+            MoveFocusBefore = 'down'
+        }
+        [PSCustomObject]@{
+            Title = 'PROCESSING'
+            MoveFocusBefore = 'left'
+        }
+    )
+}
+
+function Set-WindowsTerminalFocusToCleaning {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WindowsTerminalPath
+    )
+
+    Invoke-WindowsTerminalMoveFocus -WindowsTerminalPath $WindowsTerminalPath -Direction 'right'
+}
+
+function Invoke-WindowsTerminalMoveFocus {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WindowsTerminalPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Direction,
+
+        [int]$DelayMilliseconds = 180
+    )
+
+    $arguments = ConvertTo-LauncherArgumentText -Arguments @('-w', 'last', 'move-focus', $Direction)
+    Start-Process -FilePath $WindowsTerminalPath -ArgumentList $arguments | Out-Null
+
+    $safeDelay = [Math]::Max(0, [Math]::Min($DelayMilliseconds, 1000))
+    if ($safeDelay -gt 0) {
+        Start-Sleep -Milliseconds $safeDelay
+    }
+}
+
+function Wait-WindowsTerminalPaneTitleActive {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Shell,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+
+        [int]$TimeoutMilliseconds = 1200
+    )
+
+    $deadline = (Get-Date).AddMilliseconds([Math]::Max(100, $TimeoutMilliseconds))
+    do {
+        if ($Shell.AppActivate($Title)) {
+            Start-Sleep -Milliseconds 120
+            return $true
+        }
+
+        Start-Sleep -Milliseconds 80
+    } while ((Get-Date) -lt $deadline)
+
+    return $false
+}
+
+function Invoke-WindowsTerminalSessionZoomOut {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WindowsTerminalPath,
+
+        [int]$Steps = 0,
+        [int]$DelayMilliseconds = 500,
+        [string]$LogFile,
+        [string]$ProjectRoot
+    )
+
+    $safeSteps = [Math]::Max(0, [Math]::Min($Steps, 20))
+    if ($safeSteps -le 0) {
+        return [PSCustomObject]@{
+            Attempted = $false
+            Applied = $false
+            Steps = 0
+            TargetTitle = $null
+            Message = 'Session zoom is disabled or set to 0 steps.'
+        }
+    }
+
+    try {
+        $safeDelay = [Math]::Max(0, [Math]::Min($DelayMilliseconds, 5000))
+        if ($safeDelay -gt 0) {
+            Start-Sleep -Milliseconds $safeDelay
+        }
+
+        $shell = New-Object -ComObject WScript.Shell
+        $gridReady = Wait-WindowsTerminalPaneTitleActive -Shell $shell -Title 'CLEANING' -TimeoutMilliseconds 5000
+        if (-not $gridReady) {
+            return [PSCustomObject]@{
+                Attempted = $true
+                Applied = $false
+                Steps = $safeSteps
+                TargetTitle = $null
+                PaneResults = @()
+                Message = 'Could not confirm the CLEANING pane as active before applying pane zoom; grid assembly may still be in progress.'
+            }
+        }
+
+        $paneResults = @()
+        foreach ($pane in Get-WindowsTerminalSessionZoomSequence) {
+            if (-not [string]::IsNullOrWhiteSpace($pane.MoveFocusBefore)) {
+                Invoke-WindowsTerminalMoveFocus -WindowsTerminalPath $WindowsTerminalPath -Direction $pane.MoveFocusBefore
+            }
+
+            $activated = Wait-WindowsTerminalPaneTitleActive -Shell $shell -Title $pane.Title
+            if (-not $activated) {
+                $paneResults += [PSCustomObject]@{
+                    Title = $pane.Title
+                    Applied = $false
+                    Message = "Could not focus Windows Terminal pane title '$($pane.Title)'."
+                }
+                continue
+            }
+
+            Start-Sleep -Milliseconds 120
+            for ($index = 0; $index -lt $safeSteps; $index++) {
+                $shell.SendKeys('^-')
+                Start-Sleep -Milliseconds 60
+            }
+
+            $paneResults += [PSCustomObject]@{
+                Title = $pane.Title
+                Applied = $true
+                Message = "Sent Ctrl+Minus $safeSteps time(s)."
+            }
+        }
+
+        if (@($paneResults | Where-Object { $_.Applied }).Count -gt 0) {
+            try {
+                Set-WindowsTerminalFocusToCleaning -WindowsTerminalPath $WindowsTerminalPath
+            } catch {
+                # Returning focus to CLEANING is cosmetic; the zoom result above is what matters.
+            }
+        }
+
+        $failedPanes = @($paneResults | Where-Object { -not $_.Applied })
+        return [PSCustomObject]@{
+            Attempted = $true
+            Applied = ($failedPanes.Count -eq 0)
+            Steps = $safeSteps
+            TargetTitle = (($paneResults | Where-Object { $_.Applied } | ForEach-Object { $_.Title }) -join ', ')
+            PaneResults = $paneResults
+            Message = if ($failedPanes.Count -eq 0) {
+                "Sent Ctrl+Minus $safeSteps time(s) to all Windows Terminal panes."
+            } else {
+                "Zoom was not applied to: $((($failedPanes | ForEach-Object { $_.Title }) -join ', '))."
+            }
+        }
+    } catch {
+        return [PSCustomObject]@{
+            Attempted = $true
+            Applied = $false
+            Steps = $safeSteps
+            TargetTitle = $null
+            Message = $_.Exception.Message
+        }
+    }
+}
+
 function Wait-ForWindowsTerminalReady {
     [CmdletBinding()]
     param(
@@ -562,6 +783,8 @@ function Start-TerminalGrid {
         [Parameter(Mandatory = $true)]
         [string]$ProjectRoot,
 
+        [object]$VisualSettings,
+
         [string]$LogFile
     )
 
@@ -590,6 +813,16 @@ function Start-TerminalGrid {
 
     Write-Log -Message "Windows Terminal grid-completion arguments: $completionArgumentText" -Level 'DEBUG' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
     Start-Process -FilePath $wtCommand.Source -ArgumentList $completionArgumentText -WorkingDirectory $ProjectRoot | Out-Null
+
+    $zoomSettings = Get-WindowsTerminalSessionZoomSettings -VisualSettings $VisualSettings
+    if ($zoomSettings.Enabled -and $zoomSettings.ZoomOutSteps -gt 0) {
+        $zoomResult = Invoke-WindowsTerminalSessionZoomOut -WindowsTerminalPath $wtCommand.Source -Steps $zoomSettings.ZoomOutSteps -DelayMilliseconds $zoomSettings.DelayMilliseconds -LogFile $LogFile -ProjectRoot $ProjectRoot
+        if ($zoomResult.Applied) {
+            Write-Log -Message "Applied Windows Terminal session zoom-out: Ctrl+Minus sent $($zoomResult.Steps) time(s) to panes '$($zoomResult.TargetTitle)'." -Level 'SUCCESS' -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
+        } else {
+            Write-WarningLog -Message "Windows Terminal session zoom-out was not applied: $($zoomResult.Message)" -Terminal 'LAUNCHER' -LogFile $LogFile -ProjectRoot $ProjectRoot | Out-Null
+        }
+    }
 
     return [PSCustomObject]@{
         Engine = 'wt.exe'

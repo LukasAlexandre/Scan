@@ -14,6 +14,8 @@ Configuracoes visuais devem ser ajustaveis sem alterar scripts. O visual e impor
 {
   "fontFace": "Cascadia Mono",
   "fontSize": 13,
+  "sessionZoomOutSteps": 5,
+  "sessionZoomDelayMilliseconds": 2500,
   "opacity": 92,
   "theme": "dark",
   "keepTerminalOpen": true,
@@ -46,6 +48,11 @@ Configuracoes visuais devem ser ajustaveis sem alterar scripts. O visual e impor
 ## Decisoes Tecnicas
 
 - Visual deve ser configuravel por terminal.
+- `sessionZoomOutSteps` aplica o equivalente a pressionar `Ctrl+Minus`
+  em cada pane apos a grade 2x2 abrir no Windows Terminal, sem alterar
+  configuracoes globais do aplicativo.
+- `sessionZoomDelayMilliseconds` aguarda a montagem do grid terminar antes
+  de navegar entre panes para aplicar zoom, evitando corrida com os splits.
 - Loading deve ter texto que indique preparacao visual.
 - `keepTerminalOpen` evita fechamento antes de leitura.
 
@@ -53,6 +60,8 @@ Configuracoes visuais devem ser ajustaveis sem alterar scripts. O visual e impor
 
 - Nao usar loading visual como progresso real do comando.
 - Nao depender da fonte para funcionamento.
+- Nao alterar `settings.json` global do Windows Terminal para resolver zoom
+  visual de uma sessao do projeto.
 - ANSI deve ter reset ao final.
 
 ## Arquivos Relacionados

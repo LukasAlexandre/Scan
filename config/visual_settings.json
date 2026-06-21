@@ -5,6 +5,8 @@
     "fallback": "PowerShellWindow",
     "fontFace": "Cascadia Mono",
     "fontSize": 13,
+    "sessionZoomOutSteps": 5,
+    "sessionZoomDelayMilliseconds": 2500,
     "applyGlobalSystemFontChange": false
   },
   "layout": {

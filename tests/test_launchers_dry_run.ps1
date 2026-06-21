@@ -71,6 +71,7 @@ Add-Check -Name 'grid_launcher_blocks_maintenance_real_mode' -Passed $blockedMai
 
 try {
     $terminalsConfig = Get-TerminalsConfig -ProjectRoot $projectRoot
+    $visualSettings = Get-VisualSettings -ProjectRoot $projectRoot
     $terminalDefinitions = Get-LauncherTerminalDefinitions -TerminalsConfig $terminalsConfig -ProjectRoot $projectRoot
     $sampleRunLogDirectory = Join-Path $projectRoot 'logs/_tests_tmp_argument_check'
     $terminalCommands = New-LauncherTerminalCommands -TerminalDefinitions $terminalDefinitions -Mode 'startup_safe' -RunLogDirectory $sampleRunLogDirectory -NoPause
@@ -97,10 +98,12 @@ try {
 
     $splitCount = @($completionArguments | Where-Object { $_ -eq 'split-pane' }).Count
     $sizeHalfCount = @($completionArguments | Where-Object { $_ -eq '0.5' }).Count
+    $suppressTitleCount = @(($bootstrapArguments + $completionArguments) | Where-Object { $_ -eq '--suppressApplicationTitle' }).Count
     Add-Check -Name 'windows_terminal_bootstrap_uses_new_window' -Passed (($bootstrapArguments[0] -eq '--window') -and ($bootstrapArguments[1] -eq 'new')) -Message $bootstrapArgumentText
     Add-Check -Name 'windows_terminal_completion_targets_last_window' -Passed (($completionArguments[0] -eq '-w') -and ($completionArguments[1] -eq 'last')) -Message $completionArgumentText
     Add-Check -Name 'windows_terminal_has_three_splits' -Passed ($splitCount -eq 3) -Message "split-pane count=$splitCount"
     Add-Check -Name 'windows_terminal_splits_are_half_size' -Passed ($sizeHalfCount -eq 3) -Message "0.5 split size count=$sizeHalfCount"
+    Add-Check -Name 'windows_terminal_preserves_all_pane_titles' -Passed ($suppressTitleCount -eq 4) -Message "--suppressApplicationTitle count=$suppressTitleCount"
 
     # Expected 2x2 grid: ANALYTICS (top-left) | SCANNING (top-right) over PROCESSING (bottom-left) | CLEANING (bottom-right).
     # Build order: new-tab ANALYTICS (bootstrap call, "--window new") -> [wait for window to be ready] ->
@@ -110,6 +113,17 @@ try {
     Add-Check -Name 'windows_terminal_grid_2x2_layout_order' -Passed ($combinedArgumentText -match $expectedSequencePattern) -Message $combinedArgumentText
     Add-Check -Name 'windows_terminal_returns_to_analytics_before_scanning_split' -Passed ($combinedArgumentText -match 'move-focus up ; split-pane -V --size 0\.5 --title SCANNING') -Message $combinedArgumentText
     Add-Check -Name 'windows_terminal_returns_to_processing_before_cleaning_split' -Passed ($combinedArgumentText -match 'move-focus down ; split-pane -V --size 0\.5 --title CLEANING') -Message $combinedArgumentText
+
+    $zoomSettings = Get-WindowsTerminalSessionZoomSettings -VisualSettings $visualSettings
+    Add-Check -Name 'windows_terminal_session_zoom_enabled' -Passed ($zoomSettings.Enabled -eq $true) -Message "Enabled=$($zoomSettings.Enabled)"
+    Add-Check -Name 'windows_terminal_session_zoom_out_steps_five' -Passed ($zoomSettings.ZoomOutSteps -eq 5) -Message "ZoomOutSteps=$($zoomSettings.ZoomOutSteps)"
+    Add-Check -Name 'windows_terminal_session_zoom_waits_for_grid_settle' -Passed ($zoomSettings.DelayMilliseconds -ge 2000) -Message "DelayMilliseconds=$($zoomSettings.DelayMilliseconds)"
+
+    $zoomSequence = @(Get-WindowsTerminalSessionZoomSequence)
+    $zoomSequenceTitles = ($zoomSequence | ForEach-Object { $_.Title }) -join ','
+    $zoomSequenceMoves = ($zoomSequence | ForEach-Object { if ($_.MoveFocusBefore) { $_.MoveFocusBefore } else { '<current>' } }) -join ','
+    Add-Check -Name 'windows_terminal_session_zoom_targets_all_four_panes' -Passed ($zoomSequenceTitles -eq 'ANALYTICS,SCANNING,CLEANING,PROCESSING') -Message "Titles=$zoomSequenceTitles"
+    Add-Check -Name 'windows_terminal_session_zoom_moves_between_panes' -Passed ($zoomSequenceMoves -eq 'first,right,down,left') -Message "Moves=$zoomSequenceMoves"
 } catch {
     Add-Check -Name 'terminal_command_assembly' -Passed $false -Message $_.Exception.Message
 }
